@@ -1,0 +1,413 @@
+---
+title: "Final Project of LING-411"
+author: "Mehmet Akif Güçyener"
+date: "Last edited `r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: '4'
+  html_document:
+    toc: true
+    toc_depth: 4
+    number_sections: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+  word_document:
+    toc: true
+    toc_depth: '4'
+---
+
+```{=html}
+<style>
+#header {
+  color: red;
+  background-color #F5F5F5;
+  opacity: 0.6;
+  font-family: Calibri;
+  font-size: 20px;
+}
+#TOC {
+  color: #708090;
+  font-family: Calibri;
+  font-size: 16px;
+  border-color: #708090;
+}
+body {
+  color: black;   
+  font-family: Calibri;
+  background-color: #F5F5F5;
+}
+pre {
+  color: #708090;
+  background-color: #F8F8FF;
+}
+</style>
+```
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(broom)
+library(magrittr)
+library(ggrepel)
+library(knitr)
+library(gridExtra)
+library(effsize)
+library(pwr)
+eng_lexdec_naming <- read_csv("english_lexdec_naming.csv")
+opts_chunk$set(echo = FALSE)
+```
+
+## Objective and Overview of Dataset
+
+This is a data analysis project. I have chosen one of the three datasets that was provided. Step-by-step we will try to understand the data, form a hypothesis around it and then test it using regression models.
+
+Sidenote: I always wondered how you built the class notes for the course. In the last PS of the class Onur showed us how and I tried to give it a shot. Many thanks to both of you to boost our creativity.
+
+
+### Lexical Decision and Naming Dataset
+
+The `eng_lexdec_naming` dataset contains data of a lexical decision and lexical naming task. In a decision task, participants try to determine whether a string is a word or not. Naming tasks involves showing participants pictures and asking them to name the picture. Reaction times are in miliseconds.
+
+```{r eng-lexdec-naming}
+eng_lexdec_naming
+```
+
+It seems that our data consist of 4568 datapoints and 10 variables with column names `r colnames(eng_lexdec_naming)`. Inspection of the dataset shows that our Word column has a factor with two levels saved as AgeSubject: `r unique(eng_lexdec_naming$AgeSubject)`. This makes the same word appear twice.
+
+---
+
+## Data Analysis and Hypothesis Forming
+
+### Checking for Duplicates and NA's
+
+In order to form a hypothesis, we must have an understanding of what the data is saying. Before that, it is good practice to check for duplicates and missing values. Not accounting for them may disrupt our analysis.
+
+```{r na-duplicate-check, echo=TRUE}
+sum(is.na(eng_lexdec_naming))
+length(unique(eng_lexdec_naming$Word))
+```
+
+It seems that there is no missing values but there are some duplicates. Our word count had to be 2284, half of 4568 (total row number). We are missing 87 rows. I tried to check for duplicates by filtering words that may be appearing more than two times. I found out that some words like "arm" appear more than what they are supposed to:
+
+```{r duplicate-plot}
+duplicates <- eng_lexdec_naming %>%
+  count(Word) %>%
+  filter(n > 2)
+
+arm <- eng_lexdec_naming %>%
+  filter(Word == 'arm')
+
+kable(arm, align="c", caption="Table: Duplicate Word 'Arm'")
+```
+
+As we can see, there are two duplicates. Each one comes from one AgeSubject. One is young, the other is old. From this point on, I have decided to get rid of them.
+
+```{r remove-duplicates, echo=TRUE}
+eng_lexdec_naming %<>%
+  distinct()
+```
+
+### Data Exploration
+
+Our task will revolve around identifying possible predictors for RTnaming and RTlexdec since they are the dependent variables for respective tasks. Based on our linguistic understanding, I have decided that three variables may have an important role on predicting the reaction times. They are WrittenFrequency, Familiarity and Family Size
+
+**WrittenFrequency:** Token frequency plays an important role in word retrieval. When a word has higher frequency, it will be more established in the memory and more easy to remember thus have a greater memory strength.
+
+**FamilySize:** A Word Family refers to lexemes that are morphologically related to each other via derivation. When frequency effects apply, it can be easier to remember entries of a bigger family.
+
+**Familiarity:** As a combination of different phenomena (frequency, age of acquisition, exposure) it refers to how one perceives words more familiar
+
+```{r freq-plot, fig.width=12, fig.height=4, caption="Plots of Distribution"}
+mean_freq <- mean(eng_lexdec_naming$WrittenFrequency)
+sd_freq <- sd(eng_lexdec_naming$WrittenFrequency)
+
+freq <- ggplot(data=eng_lexdec_naming, aes(x=WrittenFrequency)) +
+  geom_histogram(bins=200, color="orange", fill='gold') +
+  geom_vline(xintercept=mean_freq, linetype='dashed') +
+  labs(title='Distribution of Written Frequency',
+       subtitle="mean: 977.41, sd: 3907.79") +
+  theme_minimal() +
+  theme(plot.title = element_text(face="bold")) 
+#freq #zipfean distribution
+
+
+# family size distribution plot
+mean_family <- mean(eng_lexdec_naming$FamilySize)
+sd_family <- sd(eng_lexdec_naming$FamilySize)
+#binwidth=0.1, boundary=0
+
+families <- ggplot(data=eng_lexdec_naming, aes(x=FamilySize)) +
+  geom_histogram(bins=200, color="orange", fill='gold') +
+  geom_vline(xintercept=mean(eng_lexdec_naming$FamilySize), linetype='dashed') +
+  labs(title='Distribution of Morphological Family Size',
+       subtitle="mean: 9.36, sd: 13.89") +
+  theme_minimal() +
+  theme(plot.title = element_text(face="bold"))
+#families #zipfean distribution
+
+
+# familiarity distribution plot
+mean_familiarity <- mean(eng_lexdec_naming$Familiarity)
+sd_familiarity <- sd(eng_lexdec_naming$Familiarity)
+
+familiarity <- ggplot(data=eng_lexdec_naming, aes(x=Familiarity)) +
+  geom_histogram(bins=200, color="orange", fill='gold') +
+  geom_vline(xintercept=mean_familiarity, linetype='dashed') +
+  labs(title='Distribution of Familiarity',
+       subtitle="mean: 3.79 sd: 1.15") +
+  theme_minimal() +
+  theme(plot.title = element_text(face="bold"))
+#familiarity #normal distribution
+
+grid.arrange(freq, families, familiarity, ncol = 3)
+```
+
+We can see that frequency and family values are in zipfean distribution. Transforming these values may be necessary. For the plots below which concerns possible predictors and outcomes, I transformed them with `log()`
+
+```{r outcome-plots, fig.width=15, fig.height=5, caption="Plots of Predictors vs Outcomes"}
+RTlexdec_freq <- ggplot(data=eng_lexdec_naming, aes(x=log(WrittenFrequency), y=RTlexdec, color=AgeSubject, size=FamilySize)) +
+  geom_point(alpha=0.4)+
+  geom_vline(xintercept = 5.020491, linetype = "dashed") +
+  #geom_label(aes(x=5.020491, y=mean(RTlexdec), label="5.020491"), inherit.aes=FALSE) +
+  scale_color_brewer(palette="Dark2") +
+  labs(title="Scatterplot of RTlexdec vs. Log(WrittenFrequency)",
+       x="Log(Written Frequency)",
+       y="Lexical Decision Reaction Time",
+       subtitle="Sized by Morphological Family Size") +
+  theme_minimal() +
+  theme(plot.title = element_text(face="bold"))
+
+RTlexdec_famil <- ggplot(data=eng_lexdec_naming, aes(x=log(WrittenFrequency), y=RTlexdec, color=AgeSubject, size=FamilySize)) +
+  geom_point(alpha=0.4) +
+  scale_color_brewer(palette="Dark2") +
+  labs(title="Scatterplot of RTlexdec vs. Log(WrittenFrequency)",
+       x="Familiarity",
+       y="Lexical Decision Reaction Time",
+       subtitle="Sized by Morphological Family Size") +
+  theme_minimal() +
+  theme(plot.title = element_text(face="bold"))
+
+RTnaming_freq <- ggplot(data=eng_lexdec_naming, aes(x=log(WrittenFrequency), y=RTnaming, color=AgeSubject, size=FamilySize)) +
+  geom_point(alpha=0.4) +
+  scale_color_brewer(palette="Dark2") +
+  labs(title="Scatterplot of RTnaming vs. Log(WrittenFrequency)",
+       x="Log(Written Frequency)",
+       y="Naming Reaction Time",
+       subtitle="Sized by Morphological Family Size") +
+  theme_minimal() +
+  theme(plot.title = element_text(face="bold"))
+
+grid.arrange(RTlexdec_freq, RTlexdec_famil, RTnaming_freq, ncol = 3)
+```
+
+### Hypothesis
+
+Given the complexity of analyzing two different two-level outcomes with three predictors; I have decided to continue with two predictors and one outcome
+
+#### Null Hypothesis
+
+There is no significant relationship between lexical decision reaction times, frequency ratings and morphological family size in both age groups
+
+#### Alternative Hypothesis
+
+Lexical decision reaction times are significantly related to frequency ratings and morphological family size in both age groups.
+
+---
+
+## Testing the Hypothesis
+
+### Transformations
+
+```{r rename-log-transformation, include=FALSE}
+
+df <- eng_lexdec_naming %>%
+  select(Word, RTlexdec, WrittenFrequency, FamilySize, AgeSubject) %>%
+  mutate(LogFamilySize = log(FamilySize), LogFreq = log(WrittenFrequency),
+         AgeSubject = factor(AgeSubject, levels = c("young", "old")))
+```
+
+From this point on, `eng_lexdec_naming` will be named as `df` for the ease of use. Also, unrelated columns will be dropped. I non-linear transformations:
+
+-   Log transformations of `FamilySize` and `WrittenFrequency` saved as `LogFamilySize` and `LogFreq` respectively
+
+-   AgeGroup is factorized by using `factor()`
+
+```{r plots-log-transformations, fig.width=12, fig.height=4, caption="Plots of Transformed Predictors"}
+mean_log_freq <- mean(df$LogFreq)
+sd_log_freq <- sd(df$LogFreq)
+
+log_freq <- ggplot(data=df, aes(x=LogFreq)) +
+  geom_histogram(bins=200, color="orange", fill='gold') +
+  geom_vline(xintercept=mean_log_freq, linetype='dashed') +
+  labs(title='Distribution of LogFreq',
+       subtitle="mean: 5.02, sd: 1.85") +
+  theme_minimal() +
+  theme(plot.title = element_text(face="bold")) 
+
+
+# logFamilySize distribution plot
+mean_log_family <- mean(df$LogFamilySize)
+sd_log_family <- sd(df$LogFamilySize)
+
+log_families <- ggplot(data=df, aes(x=LogFamilySize)) +
+  geom_histogram(bins=200, color="orange", fill='gold') +
+  geom_vline(xintercept=mean(df$LogFamilySize), linetype='dashed') +
+  labs(title='Distribution of LogFamilySize',
+       subtitle="mean: 1.81, sd: 0.82") +
+  theme_minimal() +
+  theme(plot.title = element_text(face="bold"))
+
+grid.arrange(log_freq, log_families, ncol = 2)
+```
+
+Plots show that our predictors have become more normally distributed
+
+### Models
+
+Eight linear regression models have been built in order to test our hypothesis:
+
+```{r models, echo=TRUE}
+m1 <- lm(RTlexdec  ~  LogFreq, data=df)
+m2 <- lm(RTlexdec  ~  AgeSubject, data=df)
+m3 <- lm(RTlexdec  ~  LogFamilySize, data=df)
+m3_2 <- lm(RTlexdec  ~  FamilySize, data=df)
+m4 <- lm(RTlexdec  ~  LogFreq + AgeSubject, data=df)
+m5 <- lm(RTlexdec  ~  LogFreq + LogFamilySize, data=df)
+m6 <- lm(RTlexdec  ~  AgeSubject + LogFamilySize, data=df)
+m7 <- lm(RTlexdec  ~  LogFreq + LogFamilySize + AgeSubject + LogFreq, data=df)
+```
+
+```{r predictors-transformed-plot, out.width='50%', warning=FALSE, caption="Scatterplot of RTlexdec vs. LogFreq"}
+RTlexdec2_freq <- ggplot(data=df, aes(x=LogFreq, y=RTlexdec, color=AgeSubject, size=LogFamilySize)) +
+  geom_point(alpha=0.3)+
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1) + 
+  scale_size_continuous(name = "Log Family Size") +
+  #geom_label(aes(x=5.020491, y=mean(RTlexdec), label="5.020491"), inherit.aes=FALSE) +
+  scale_color_brewer(palette="Dark2") +
+  labs(title="Scatterplot of RTlexdec vs. LogFreq",
+       x="Logarithm of Written Frequency",
+       y="Lexical Decision Reaction Time",
+       subtitle="Sized by Logarithmic Family Size") +
+  theme_minimal() +
+  theme(plot.title = element_text(face="bold")) +
+  guides(
+    color = guide_legend(order = 1), # Color legend
+    size = guide_legend(order = 2)   # Size legend (for points only)
+  )
+
+RTlexdec2_freq
+```
+
+
+#### Model-1
+
+ + m1  - RTlexdec vs LogFreq
+    + Our intercept is 844. It is the RT value when frequency is 0
+    + Estimate of LogFreq is -27.0 . This means 1 point increase in frequency results in 27 points decrease in RT
+  
+```{r model-glance-m1}
+glance(m1)
+```
+
+  + p-val -  Our analysis is statistically significant
+  + r-sq  -  Accounts for 18% of the variation
+
+---
+
+#### Model-2
+
+ + m2  - RTlexdec vs AgeSubject
+    + Intercept represents the reference group "young" for AgeSubject
+    + Our intercept is 630 . It is the mean RT value for young participants
+    + Estimate is 158 . This means the mean of old participants is 158 point more than young participants
+  
+```{r model-glance-m2}
+glance(m2)
+```
+
+  + p-val -  Our analysis is statistically significant
+  + r-sq  -  Accounts for 46% of the variation
+
+---
+  
+#### Model-3
+
+ + m3  - RTlexdec vs LogFamilySize
+    + Our intercept is 796 It is the RT value when LogFamilySize is 0
+    + Estimate of LogFreq is -48.4 . This means 1 point increase in LogFamilySize results in 48.4 points decrease in RT
+
+```{r model-glance-m3}
+glance(m3)
+```
+
+  + p-val -  Our analysis is statistically significant
+  + r-sq  -  Accounts for 12% of the variation
+  
+---
+
+#### Model-3_2
+
+ + m3_2  - RTlexdec vs FamilySize
+    + I wanted to try one model without transformations
+    + Our intercept is 724 . It is the mean RTvalue when FamilySize is 0
+    + Estimate is -1.63 . This means 1 point increase in FamilySize results in -1.63 points decrease in RT
+
+```{r model-glance-m3_2}
+glance(m3_2)
+```
+
+  + p-val -  Our analysis is statistically significant but decreased significantly
+  + r-sq  -  Accounts for 66% of the variation, lot lower than m3
+  
+#### Model-7
+
+ + m3  - RTlexdec vs LogFamilySize + AgeSubject + LogFreq
+    + The most complex model
+    + Intercept represents the reference group "young" for AgeSubject
+    + Estimate for LogFreq and LogFamilySize is -22.7 and -14.6 respectively. Their increase similarly results in decrease of RTlexdec
+
+```{r model-glance-m7}
+glance(m7)
+```
+
+  + p-val -  Our analysis is statistically significant
+  + r-sq  -  Accounts for 66% of the variation, highest of all models
+  
+---
+
+## Model Interpretation and Conclutions:
+
+To check for which models serve the best, we check the AIC scores of the models:
+
+```{r AIC}
+aic <- AIC(m1,m2,m3,m3_2,m4,m5,m6,m7) %>%
+  arrange(AIC)
+
+head(aic, 3)
+```
+
+It seems that m7 is indeed our best model. Let's find out f-squared (used for effect size of multiple predictors) and conduct a power analysis.
+
+```{r cohen- f2,}
+r_squared <- summary(m7)$r.squared
+
+# Calculate Cohen's f^2
+f_squared <- r_squared / (1 - r_squared)
+print(paste("Cohen's f^2:", f_squared))
+
+k <- 4
+f2 <- 0.35
+v <- 2192
+alpha <- 0.05      
+
+# Calculate the required sample size
+power_result <- pwr.f2.test(u = k, v = v, f2 = f2, sig.level = alpha)
+print(paste("power:", power_result$power))
+
+```
+
+Our analysis concludes with power analysis. We have focused on analyzing `eng_lexdec_naming` dataset. After our routine exploration, we have found that three variables may play a part in predicting reaction times. For ease of analysis, we have chosen RTlexdec as outcome and FamilySize, WrittenFrequency and AgeSubject as predictors. After conducting some log transformations, seven models were built. m7 was the best model according to our metrics.
+
+According to our analysis, our hypothesis stands. FamilySize, WrittenFrequency and AgeSubject are significant predictors when analyzing lexical decision reaction times.
+Old subjects react slower than young participants. Increased FamilySize and WrittenFrequency both reduced reaction times. Findings are also consistent with the literature and we have showed that results are replicable.

@@ -1,0 +1,14 @@
+This dataset contains a little over 4.5 thousand datapoints from a lexical decision and lexical naming task. In the lexical decision task, people were asked to determine whether a string is a word or not a word. In the naming task, they were shown pictures and asked to name them. Their reaction times were recorded in milliseconds. 
+
+The variable names in the dataset are described as follows. 
+
+RTlexdec 		:numeric vector of RT in miliseconds in visual lexical decision. 
+RTnaming		:numeric vector of RT in miliseconds in word naming. 
+Familiarity 		:numeric vector of subjective familiarity ratings. 
+Word 			:a factor with 2284 words.
+AgeSubject 		:a factor with as levels the age group of the subject: young versus old.
+WrittenFrequency 	:numeric vector with log frequency in a database.
+FamilySize 		:numeric vector with morphological family size.
+NounFrequency 		:numeric vector with the frequency of the word used as noun. 
+VerbFrequency 		:numeric vector with the frequency of the word used as verb.
+Voice factor 		:indicating whether the initial sound is voiced or voiceless.
